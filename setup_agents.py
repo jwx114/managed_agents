@@ -51,8 +51,11 @@ def ensure_environment(client: anthropic.Anthropic, config: dict) -> None:
         # Look it up and reuse it instead of failing.
         if e.status_code == 409:
             match = next(
-                (e for e in client.beta.environments.list()
-                 if e.name == ENVIRONMENT["name"]),
+                (
+                    e
+                    for e in client.beta.environments.list()
+                    if e.name == ENVIRONMENT["name"]
+                ),
                 None,
             )
             if match is None:

@@ -32,7 +32,9 @@ PROJECT_ROOT = Path(__file__).parent
 
 DEFAULT_TASK = {
     "reviewer": "Review the mounted code and report your findings.",
-    "test-writer": "Write thorough unit tests for the most important logic in the mounted code.",
+    "test-writer": (
+        "Write thorough unit tests for the most important logic in the mounted code."
+    ),
 }
 
 
@@ -112,7 +114,11 @@ def main() -> None:
     # The session references the agent by ID. model/system/tools are NOT here —
     # they live on the agent. This is just a pointer + what to work on.
     session = client.beta.sessions.create(
-        agent={"type": "agent", "id": agent_entry["id"], "version": agent_entry["version"]},
+        agent={
+            "type": "agent",
+            "id": agent_entry["id"],
+            "version": agent_entry["version"],
+        },
         environment_id=config["environment_id"],
         title=f"{args.agent} run",
         resources=resources,

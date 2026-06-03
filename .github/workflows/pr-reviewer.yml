@@ -9,6 +9,10 @@ jobs:
   lint:
     name: Lint & Static Checks
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -23,11 +27,96 @@ jobs:
           pip install -r requirements.txt
           pip install flake8 black isort
 
-      - name: Run linting
+      - name: Run linters and capture output
         run: |
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          black --check .
-          isort --check .
+          set -euo pipefail
+          mkdir -p reports
+          # Run linters; capture output but don't fail the step so we can post a report
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics > reports/flake8.txt || true
+          black --check . > reports/black.txt 2>&1 || true
+          isort --check . > reports/isort.txt 2>&1 || true
+
+      - name: Build lint report
+        run: |
+          set -euo pipefail
+          rpt=reports/lint_report.md
+          echo "# Lint report" > "$rpt"
+          issues=0
+
+          if [ -s reports/flake8.txt ]; then
+            issues=1
+            echo "\n## Flake8 errors\n" >> "$rpt"
+            # flake8 lines are: path:line:col: code message
+            while IFS= read -r line; do
+              if [[ ! "$line" =~ ^[^:]+:[0-9]+:[0-9]+: ]]; then
+                echo "$line" >> "$rpt"
+                continue
+              fi
+              file=$(echo "$line" | cut -d: -f1)
+              lnum=$(echo "$line" | cut -d: -f2)
+              col=$(echo "$line" | cut -d: -f3)
+              msg=$(echo "$line" | cut -d: -f4-)
+              echo "- **$file:$lnum:$col**: $msg" >> "$rpt"
+              echo '```py' >> "$rpt"
+              sed -n "${lnum}p" "$file" >> "$rpt" || true
+              echo '```' >> "$rpt"
+              echo "Suggestion: Fix the code on the shown line to resolve the flake8 message." >> "$rpt"
+            done < reports/flake8.txt
+          fi
+
+          if grep -q 'would reformat' reports/black.txt 2>/dev/null || true; then
+            issues=1
+            echo "\n## Black formatting issues\n" >> "$rpt"
+            grep 'would reformat' reports/black.txt | while read -r l; do
+              file=$(echo "$l" | awk '{print $3}')
+              echo "- **$file** needs formatting" >> "$rpt"
+              echo '```diff' >> "$rpt"
+              black --diff "$file" | sed -n '1,200p' >> "$rpt" || true
+              echo '```' >> "$rpt"
+              echo "Suggestion: Run \`black $file\` to reformat." >> "$rpt"
+            done
+          fi
+
+          if [ -s reports/isort.txt ]; then
+            issues=1
+            echo "\n## isort issues\n" >> "$rpt"
+            sed -n '1,200p' reports/isort.txt >> "$rpt"
+            echo "Suggestion: Run \`isort .\` or inspect the import order for the listed files." >> "$rpt"
+          fi
+
+          if [ "$issues" -eq 1 ]; then
+            echo "Lint issues found; report written to $rpt"
+            cat "$rpt"
+          else
+            echo "No lint issues found."
+          fi
+
+      - name: Post lint report as PR comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = './reports/lint_report.md';
+            if (fs.existsSync(path)) {
+              const body = fs.readFileSync(path, 'utf8');
+              if (body.includes('Lint issues found')) {
+                github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: `## 🔍 Lint report\n\n${body}`,
+                });
+              }
+            }
+
+      - name: Fail if lint issues
+        run: |
+          if [ -s reports/flake8.txt ] || grep -q 'would reformat' reports/black.txt 2>/dev/null || [ -s reports/isort.txt ]; then
+            echo "Lint checks failed. See the PR comment for details." >&2
+            exit 1
+          fi
 
   # Stage 2: Unit tests
   unit-tests:
