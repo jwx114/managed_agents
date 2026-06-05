@@ -36,8 +36,12 @@ def run_session(client: anthropic.Anthropic, session_id: str, kickoff_text: str)
     with client.beta.sessions.events.stream(session_id=session_id) as stream:
         client.beta.sessions.events.send(
             session_id=session_id,
-            events=[{"type": "user.message",
-                     "content": [{"type": "text", "text": kickoff_text}]}],
+            events=[
+                {
+                    "type": "user.message",
+                    "content": [{"type": "text", "text": kickoff_text}],
+                },
+            ],
         )
 
         for event in stream:
