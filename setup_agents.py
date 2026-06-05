@@ -68,7 +68,9 @@ def ensure_environment(client: anthropic.Anthropic, config: dict) -> None:
     print(f"  environment   : created {env.id}")
 
 
-def ensure_agent(client: anthropic.Anthropic, config: dict, key: str, definition: dict) -> None:
+def ensure_agent(
+    client: anthropic.Anthropic, config: dict, key: str, definition: dict
+) -> None:
     existing = config["agents"].get(key)
     if existing and existing.get("id"):
         # Update in place -> new version. Existing sessions keep their pinned version.
@@ -84,7 +86,9 @@ def ensure_agent(client: anthropic.Anthropic, config: dict, key: str, definition
 def main() -> None:
     load_dotenv()
     if not os.getenv("ANTHROPIC_API_KEY"):
-        sys.exit("ANTHROPIC_API_KEY is not set. Copy .env.example to .env and fill it in.")
+        sys.exit(
+            "ANTHROPIC_API_KEY is not set. Copy .env.example to .env and fill it in."
+        )
 
     client = anthropic.Anthropic()
     config = load_config()
