@@ -32,7 +32,7 @@ jobs:
           set -euo pipefail
           mkdir -p reports
           # Run linters; capture output but don't fail the step so we can post a report
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics > reports/flake8.txt || true
+          flake8 . --select=E9,F63,F7,F82 --show-source --statistics > reports/flake8.txt || true
           black --check . > reports/black.txt 2>&1 || true
           isort --check . > reports/isort.txt 2>&1 || true
 
@@ -45,7 +45,7 @@ jobs:
 
           if [ -s reports/flake8.txt ]; then
             issues=1
-            echo "\n## Flake8 errors\n" >> "$rpt"
+            printf '\n## Flake8 errors\n\n' >> "$rpt"
             # flake8 lines are: path:line:col: code message
             while IFS= read -r line; do
               if [[ ! "$line" =~ ^[^:]+:[0-9]+:[0-9]+: ]]; then
@@ -64,9 +64,9 @@ jobs:
             done < reports/flake8.txt
           fi
 
-          if grep -q 'would reformat' reports/black.txt 2>/dev/null || true; then
+          if grep -q 'would reformat' reports/black.txt 2>/dev/null; then
             issues=1
-            echo "\n## Black formatting issues\n" >> "$rpt"
+            printf '\n## Black formatting issues\n\n' >> "$rpt"
             grep 'would reformat' reports/black.txt | while read -r l; do
               file=$(echo "$l" | awk '{print $3}')
               echo "- **$file** needs formatting" >> "$rpt"
@@ -79,13 +79,13 @@ jobs:
 
           if [ -s reports/isort.txt ]; then
             issues=1
-            echo "\n## isort issues\n" >> "$rpt"
+            printf '\n## isort issues\n\n' >> "$rpt"
             sed -n '1,200p' reports/isort.txt >> "$rpt"
             echo "Suggestion: Run \`isort .\` or inspect the import order for the listed files." >> "$rpt"
           fi
 
           if [ "$issues" -eq 1 ]; then
-            echo "Lint issues found; report written to $rpt"
+            echo "Lint issues found; report written to $rpt" >> "$rpt"
             cat "$rpt"
           else
             echo "No lint issues found."
@@ -178,7 +178,6 @@ jobs:
     name: Agentic PR Reviewer
     runs-on: ubuntu-latest
     needs: [unit-tests, integration-tests]
-    if: always()
     permissions:
       pull-requests: write
       contents: read
