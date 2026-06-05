@@ -32,9 +32,10 @@ jobs:
           set -euo pipefail
           mkdir -p reports
           # Run linters; capture output but don't fail the step so we can post a report
-          flake8 . --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv > reports/flake8.txt || true
-          black --check . --exclude="venv" > reports/black.txt 2>&1 || true
-          isort --check . --skip-glob="venv/**" > reports/isort.txt 2>&1 || true
+          # Store exit codes to check for actual errors (not success messages)
+          flake8 . --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv > reports/flake8.txt 2>&1 || echo $? > reports/flake8.exit || true
+          black --check . --exclude="venv" > reports/black.txt 2>&1 || echo $? > reports/black.exit || true
+          isort --check . --skip-glob="venv/**" > reports/isort.txt 2>&1 || echo $? > reports/isort.exit || true
 
       - name: Build lint report
         run: |
@@ -43,7 +44,11 @@ jobs:
           echo "# Lint report" > "$rpt"
           issues=0
 
-          if [ -s reports/flake8.txt ]; then
+          flake8_exit=$(cat reports/flake8.exit 2>/dev/null || echo 0)
+          black_exit=$(cat reports/black.exit 2>/dev/null || echo 0)
+          isort_exit=$(cat reports/isort.exit 2>/dev/null || echo 0)
+
+          if [ "$flake8_exit" -ne 0 ] && [ -s reports/flake8.txt ]; then
             issues=1
             printf '\n## Flake8 errors\n\n' >> "$rpt"
             # flake8 lines are: path:line:col: code message
@@ -64,7 +69,7 @@ jobs:
             done < reports/flake8.txt
           fi
 
-          if grep -q 'would reformat' reports/black.txt 2>/dev/null; then
+          if [ "$black_exit" -ne 0 ] && grep -q 'would reformat' reports/black.txt 2>/dev/null; then
             issues=1
             printf '\n## Black formatting issues\n\n' >> "$rpt"
             grep 'would reformat' reports/black.txt | while read -r l; do
@@ -77,7 +82,7 @@ jobs:
             done
           fi
 
-          if [ -s reports/isort.txt ]; then
+          if [ "$isort_exit" -ne 0 ] && [ -s reports/isort.txt ]; then
             issues=1
             printf '\n## isort issues\n\n' >> "$rpt"
             sed -n '1,200p' reports/isort.txt >> "$rpt"
@@ -113,20 +118,15 @@ jobs:
 
       - name: Fail if lint issues
         run: |
-          flake8_has_errors=0
-          black_has_errors=0
-          isort_has_errors=0
+          flake8_exit=$(cat reports/flake8.exit 2>/dev/null || echo 0)
+          black_exit=$(cat reports/black.exit 2>/dev/null || echo 0)
+          isort_exit=$(cat reports/isort.exit 2>/dev/null || echo 0)
 
-          # flake8 with no --count: empty on success, errors on failure
-          if [ -s reports/flake8.txt ]; then flake8_has_errors=1; fi
+          # flake8 exit 1 = errors found
+          # black exit 1 = files would be reformatted
+          # isort exit 1 = imports would be changed
 
-          # black: check if grep finds "would reformat"
-          if grep -q 'would reformat' reports/black.txt 2>/dev/null; then black_has_errors=1; fi
-
-          # isort: check if grep finds actual issues (non-empty means issues)
-          if [ -s reports/isort.txt ]; then isort_has_errors=1; fi
-
-          if [ $flake8_has_errors -eq 1 ] || [ $black_has_errors -eq 1 ] || [ $isort_has_errors -eq 1 ]; then
+          if [ "$flake8_exit" -ne 0 ] || [ "$black_exit" -ne 0 ] || [ "$isort_exit" -ne 0 ]; then
             echo "Lint checks failed. See the PR comment for details." >&2
             exit 1
           else
