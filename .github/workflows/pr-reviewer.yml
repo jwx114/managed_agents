@@ -197,6 +197,11 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Setup agents
+        run: python setup_agents.py
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
       - name: Run agentic PR reviewer
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
