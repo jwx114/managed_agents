@@ -1,0 +1,253 @@
+name: PR Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  # Stage 1: Quick linting and static checks
+  lint:
+    name: Lint & Static Checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install flake8 black isort
+
+      - name: Run linters and capture output
+        run: |
+          set -euo pipefail
+          mkdir -p reports
+          # Run linters; capture output but don't fail the step so we can post a report
+          # Store exit codes to check for actual errors (not success messages)
+          flake8 . --select=E9,F63,F7,F82 --show-source --statistics --exclude=venv > reports/flake8.txt 2>&1 || echo $? > reports/flake8.exit || true
+          black --check . --exclude="venv" > reports/black.txt 2>&1 || echo $? > reports/black.exit || true
+          isort --check . --skip-glob="venv/**" > reports/isort.txt 2>&1 || echo $? > reports/isort.exit || true
+
+      - name: Build lint report
+        run: |
+          set -euo pipefail
+          rpt=reports/lint_report.md
+          echo "# Lint report" > "$rpt"
+          issues=0
+
+          flake8_exit=$(cat reports/flake8.exit 2>/dev/null || echo 0)
+          black_exit=$(cat reports/black.exit 2>/dev/null || echo 0)
+          isort_exit=$(cat reports/isort.exit 2>/dev/null || echo 0)
+
+          if [ "$flake8_exit" -ne 0 ] && [ -s reports/flake8.txt ]; then
+            issues=1
+            printf '\n## Flake8 errors\n\n' >> "$rpt"
+            # flake8 lines are: path:line:col: code message
+            while IFS= read -r line; do
+              if [[ ! "$line" =~ ^[^:]+:[0-9]+:[0-9]+: ]]; then
+                echo "$line" >> "$rpt"
+                continue
+              fi
+              file=$(echo "$line" | cut -d: -f1)
+              lnum=$(echo "$line" | cut -d: -f2)
+              col=$(echo "$line" | cut -d: -f3)
+              msg=$(echo "$line" | cut -d: -f4-)
+              echo "- **$file:$lnum:$col**: $msg" >> "$rpt"
+              echo '```py' >> "$rpt"
+              sed -n "${lnum}p" "$file" >> "$rpt" || true
+              echo '```' >> "$rpt"
+              echo "Suggestion: Fix the code on the shown line to resolve the flake8 message." >> "$rpt"
+            done < reports/flake8.txt
+          fi
+
+          if [ "$black_exit" -ne 0 ] && grep -q 'would reformat' reports/black.txt 2>/dev/null; then
+            issues=1
+            printf '\n## Black formatting issues\n\n' >> "$rpt"
+            grep 'would reformat' reports/black.txt | while read -r l; do
+              file=$(echo "$l" | awk '{print $3}')
+              echo "- **$file** needs formatting" >> "$rpt"
+              echo '```diff' >> "$rpt"
+              black --diff "$file" | sed -n '1,200p' >> "$rpt" || true
+              echo '```' >> "$rpt"
+              echo "Suggestion: Run \`black $file\` to reformat." >> "$rpt"
+            done
+          fi
+
+          if [ "$isort_exit" -ne 0 ] && [ -s reports/isort.txt ]; then
+            issues=1
+            printf '\n## isort issues\n\n' >> "$rpt"
+            sed -n '1,200p' reports/isort.txt >> "$rpt"
+            echo "Suggestion: Run \`isort .\` or inspect the import order for the listed files." >> "$rpt"
+          fi
+
+          if [ "$issues" -eq 1 ]; then
+            echo "Lint issues found; report written to $rpt" >> "$rpt"
+            cat "$rpt"
+          else
+            echo "No lint issues found."
+          fi
+
+      - name: Post lint report as PR comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = './reports/lint_report.md';
+            if (fs.existsSync(path)) {
+              const body = fs.readFileSync(path, 'utf8');
+              if (body.includes('Lint issues found')) {
+                github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: `## 🔍 Lint report\n\n${body}`,
+                });
+              }
+            }
+
+      - name: Fail if lint issues
+        run: |
+          flake8_exit=$(cat reports/flake8.exit 2>/dev/null || echo 0)
+          black_exit=$(cat reports/black.exit 2>/dev/null || echo 0)
+          isort_exit=$(cat reports/isort.exit 2>/dev/null || echo 0)
+
+          # flake8 exit 1 = errors found
+          # black exit 1 = files would be reformatted
+          # isort exit 1 = imports would be changed
+
+          if [ "$flake8_exit" -ne 0 ] || [ "$black_exit" -ne 0 ] || [ "$isort_exit" -ne 0 ]; then
+            echo "Lint checks failed. See the PR comment for details." >&2
+            exit 1
+          else
+            echo "✓ All lint checks passed"
+          fi
+
+  # Stage 2: Unit tests
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run unit tests
+        run: |
+          pytest tests/ -v --cov=. --cov-report=xml --cov-report=term
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        if: always()
+        with:
+          files: ./coverage.xml
+
+  # Stage 3: Working copy / integration tests
+  integration-tests:
+    name: Working Copy Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run integration tests
+        run: |
+          pytest tests/integration/ -v --tb=short
+        env:
+          CI: true
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Stage 4: Agentic PR Reviewer (runs last, after other checks pass)
+  agentic-review:
+    name: Agentic PR Reviewer
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+    permissions:
+      pull-requests: write
+      contents: read
+      issues: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Setup agents
+        run: python setup_agents.py
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Run agentic PR reviewer
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PR_NUMBER: ${{ github.event.number }}
+          PR_REPO: ${{ github.repository }}
+        run: |
+          python run.py reviewer \
+            --repo "https://github.com/${{ github.repository }}" \
+            --branch "${{ github.head_ref }}"
+
+      - name: Post review as comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            (async () => {
+              const globber = await glob.create('./outputs/*/review.md');
+              const files = await globber.glob();
+              
+              if (files.length > 0) {
+                const review = fs.readFileSync(files[0], 'utf8');
+                await github.rest.issues.createComment({
+                  issue_number: context.issue.number,
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  body: `## 🤖 Agentic Review\n\n${review}`
+                });
+              } else {
+                console.log('No review.md file found in outputs/');
+              }
+            })();

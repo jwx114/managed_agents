@@ -24,9 +24,13 @@ def _print_block(block) -> None:
         print(block.text, end="", flush=True)
 
 
-def run_session(client: anthropic.Anthropic, session_id: str, kickoff_text: str) -> None:
+def run_session(
+    client: anthropic.Anthropic, session_id: str, kickoff_text: str
+) -> None:
     """Stream one task to completion. Blocks until the session is idle/terminated."""
-    console_url = f"https://platform.claude.com/workspaces/default/sessions/{session_id}"
+    console_url = (
+        f"https://platform.claude.com/workspaces/default/sessions/{session_id}"
+    )
     print(f"\nWatch live in Console: {console_url}\n" + "-" * 72)
 
     usage = {"input": 0, "output": 0, "cache_read": 0}
@@ -36,8 +40,12 @@ def run_session(client: anthropic.Anthropic, session_id: str, kickoff_text: str)
     with client.beta.sessions.events.stream(session_id=session_id) as stream:
         client.beta.sessions.events.send(
             session_id=session_id,
-            events=[{"type": "user.message",
-                     "content": [{"type": "text", "text": kickoff_text}]}],
+            events=[
+                {
+                    "type": "user.message",
+                    "content": [{"type": "text", "text": kickoff_text}],
+                },
+            ],
         )
 
         for event in stream:
@@ -63,7 +71,9 @@ def run_session(client: anthropic.Anthropic, session_id: str, kickoff_text: str)
                 if mu:
                     usage["input"] += getattr(mu, "input_tokens", 0) or 0
                     usage["output"] += getattr(mu, "output_tokens", 0) or 0
-                    usage["cache_read"] += getattr(mu, "cache_read_input_tokens", 0) or 0
+                    usage["cache_read"] += (
+                        getattr(mu, "cache_read_input_tokens", 0) or 0
+                    )
 
             elif etype == "session.status_terminated":
                 print("\n" + "-" * 72 + "\n[session terminated]")

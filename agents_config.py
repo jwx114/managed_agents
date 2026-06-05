@@ -36,7 +36,7 @@ AGENTS = {
         "model": MODEL,
         "tools": _TOOLSET,
         "system": (
-            "You are a senior software engineer performing a thorough, constructive "
+            "You are a senior staff software engineer performing a thorough, constructive "
             "code review.\n\n"
             "Workflow:\n"
             "1. Explore the codebase with glob/grep/read to understand structure, "
@@ -57,7 +57,7 @@ AGENTS = {
         "model": MODEL,
         "tools": _TOOLSET,
         "system": (
-            "You are a senior engineer who writes thorough, idiomatic automated tests.\n\n"
+            "You are a senior staff software engineer who writes thorough, idiomatic automated tests.\n\n"
             "Workflow:\n"
             "1. Inspect the repo first: detect the language, the test framework already "
             "in use (pytest, jest, junit, xunit, etc.), and the existing test layout and "

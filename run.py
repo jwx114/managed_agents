@@ -32,7 +32,9 @@ PROJECT_ROOT = Path(__file__).parent
 
 DEFAULT_TASK = {
     "reviewer": "Review the mounted code and report your findings.",
-    "test-writer": "Write thorough unit tests for the most important logic in the mounted code.",
+    "test-writer": (
+        "Write thorough unit tests for the most important logic in the mounted code."
+    ),
 }
 
 
@@ -65,11 +67,13 @@ def build_resources(client: anthropic.Anthropic, args) -> list:
                 sys.exit(f"File not found: {path}")
             with open(p, "rb") as fh:
                 uploaded = client.beta.files.upload(file=fh)
-            resources.append({
-                "type": "file",
-                "file_id": uploaded.id,
-                "mount_path": f"/workspace/{p.name}",
-            })
+            resources.append(
+                {
+                    "type": "file",
+                    "file_id": uploaded.id,
+                    "mount_path": f"/workspace/{p.name}",
+                }
+            )
         return resources
 
     # Default: mount this starter project's own Python files so `run.py` works
@@ -78,26 +82,34 @@ def build_resources(client: anthropic.Anthropic, args) -> list:
     for p in sorted(PROJECT_ROOT.glob("*.py")):
         with open(p, "rb") as fh:
             uploaded = client.beta.files.upload(file=fh)
-        resources.append({
-            "type": "file",
-            "file_id": uploaded.id,
-            "mount_path": f"/workspace/{p.name}",
-        })
+        resources.append(
+            {
+                "type": "file",
+                "file_id": uploaded.id,
+                "mount_path": f"/workspace/{p.name}",
+            }
+        )
     return resources
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run a Managed Agent against some code.")
+    parser = argparse.ArgumentParser(
+        description="Run a Managed Agent against some code."
+    )
     parser.add_argument("agent", choices=["reviewer", "test-writer"])
     parser.add_argument("task", nargs="?", help="What to do this run (optional).")
     parser.add_argument("--repo", help="GitHub repo URL to mount (needs GITHUB_TOKEN).")
     parser.add_argument("--branch", help="Branch to check out (with --repo).")
-    parser.add_argument("--files", nargs="+", help="Local file(s) to upload and review.")
+    parser.add_argument(
+        "--files", nargs="+", help="Local file(s) to upload and review."
+    )
     args = parser.parse_args()
 
     load_dotenv()
     if not os.getenv("ANTHROPIC_API_KEY"):
-        sys.exit("ANTHROPIC_API_KEY is not set. Copy .env.example to .env and fill it in.")
+        sys.exit(
+            "ANTHROPIC_API_KEY is not set. Copy .env.example to .env and fill it in."
+        )
 
     config = load_config()
     agent_entry = config["agents"].get(args.agent)
@@ -112,7 +124,11 @@ def main() -> None:
     # The session references the agent by ID. model/system/tools are NOT here —
     # they live on the agent. This is just a pointer + what to work on.
     session = client.beta.sessions.create(
-        agent={"type": "agent", "id": agent_entry["id"], "version": agent_entry["version"]},
+        agent={
+            "type": "agent",
+            "id": agent_entry["id"],
+            "version": agent_entry["version"],
+        },
         environment_id=config["environment_id"],
         title=f"{args.agent} run",
         resources=resources,
